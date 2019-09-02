@@ -25,7 +25,7 @@ def parse_record(raw_record, isDebug):
     record['ads'] = 0
     record['datacnt'] = 0
 
-    decodeMFTHeader(record, raw_record);
+    decodeMFTHeader(record, raw_record)
 
     record_number = record['recordnum']
 
@@ -187,7 +187,7 @@ def mft_to_csv(record, ret_header):
     tmpBuffer = ''
     filenameBuffer = ''
 
-    if ret_header == True:
+    if ret_header:
         # Write headers
         csv_string = ['Record Number', 'Good', 'Active', 'Record type',
                       # '$Logfile Seq. Num.',

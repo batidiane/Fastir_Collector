@@ -1,7 +1,7 @@
 from __future__ import unicode_literals
 from statemachine import _Statemachine
 from settings import NETWORK_ADAPTATER
-import utils
+from utils import utils
 import subprocess
 
 
@@ -28,7 +28,6 @@ class WindowsXPStateMachine(_Statemachine):
         return super(WindowsXPStateMachine, self)._list_scheduled_jobs()
 
     def _list_network_adapters(self):
-        self.logger.info('Health : Listing scheduled jobs')
         net = self.wmi.Win32_NetworkAdapter()
         for n in net:
             netcard = utils.decode_output_cmd(n.Caption)
@@ -70,7 +69,11 @@ class WindowsXPStateMachine(_Statemachine):
                             DNS_server = nc.DNSServerSearchOrder[0]
                             if nc.DHCPEnabled:
                                 DHCP_server = nc.DHCPServer
-            yield netcard, adapter_type, description, mac_address, product_name, physical_adapter, product_name, speed, IPv4, IPv6, DHCP_server, DNS_server, database_path, nbtstat_value
+            yield netcard, adapter_type, description, mac_address, product_name, physical_adapter, product_name, speed,\
+                  IPv4, IPv6, DHCP_server, DNS_server, database_path, nbtstat_value
+
+    def _list_kb(self):
+        return super(WindowsXPStateMachine, self)._list_kb()
 
     def _list_arp_table(self):
         return super(WindowsXPStateMachine, self)._list_arp_table()
@@ -97,13 +100,10 @@ class WindowsXPStateMachine(_Statemachine):
         super(WindowsXPStateMachine, self)._csv_list_running_process(self._list_running())
 
     def csv_hash_running_proccess(self):
-        super(Windows10StateMachine, self)._csv_hash_running_process(self._list_running())
+        super(WindowsXPStateMachine, self)._csv_hash_running_process(self._list_running())
 
     def csv_list_sessions(self):
         super(WindowsXPStateMachine, self)._csv_list_sessions(self._list_sessions())
-
-    def _list_kb(self):
-        return super(WindowsXPStateMachine, self)._list_kb()
 
     def csv_list_arp_table(self):
         super(WindowsXPStateMachine, self)._csv_list_arp_table(self._list_arp_table())
@@ -119,3 +119,42 @@ class WindowsXPStateMachine(_Statemachine):
 
     def csv_list_kb(self):
         super(WindowsXPStateMachine, self)._csv_list_kb(self._list_kb())
+
+    def csv_list_scheduled_jobs(self):
+        super(WindowsXPStateMachine, self)._csv_list_scheduled_jobs(True)
+
+    def json_list_scheduled_jobs(self):
+        super(WindowsXPStateMachine, self)._json_list_scheduled_jobs(True)
+
+    def json_list_drives(self):
+        super(WindowsXPStateMachine, self)._json_list_drives(self._list_drives())
+
+    def json_list_network_drives(self):
+        super(WindowsXPStateMachine, self)._json_list_network_drives(self._list_network_drives())
+
+    def json_list_share(self):
+        super(WindowsXPStateMachine, self)._json_list_share(self._list_share())
+
+    def json_list_running_proccess(self):
+        super(WindowsXPStateMachine, self)._json_list_running_process(self._list_running())
+
+    def json_hash_running_proccess(self):
+        super(WindowsXPStateMachine, self)._json_hash_running_process(self._list_running())
+
+    def json_list_sessions(self):
+        super(WindowsXPStateMachine, self)._json_list_sessions(self._list_sessions())
+
+    def json_list_arp_table(self):
+        super(WindowsXPStateMachine, self)._json_list_arp_table(self._list_arp_table())
+
+    def json_list_route_table(self):
+        super(WindowsXPStateMachine, self)._json_list_route_table(self._list_route_table())
+
+    def json_list_sockets_networks(self):
+        super(WindowsXPStateMachine, self)._json_list_sockets_network(self._list_sockets_network())
+
+    def json_list_services(self):
+        super(WindowsXPStateMachine, self)._json_list_services(self._list_services())
+
+    def json_list_kb(self):
+        super(WindowsXPStateMachine, self)._json_list_kb(self._list_kb())

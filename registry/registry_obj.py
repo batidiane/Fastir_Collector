@@ -51,7 +51,7 @@ def get_registry_key(hive, path=""):
         return None
 
 
-class RegistryKey():
+class RegistryKey(object):
     def __init__(self, hive, path=""):
         self.path = path
         self.hive = hive
@@ -73,7 +73,7 @@ class RegistryKey():
         for i in xrange(self.get_number_of_sub_keys()):
             l.append(EnumKey(self.key, i))
         return l
-    
+
     def get_number_of_sub_keys(self):
         return QueryInfoKey(self.key)[0]
 
@@ -123,7 +123,7 @@ class RegistryKey():
         return self.path
 
 
-class RegValue():
+class RegValue(object):
     def __init__(self, value, path):
         self.value = value
         self.path = path
@@ -144,7 +144,7 @@ class RegValue():
         return self.path + "\\" + self.get_name()
 
 
-class RegfFile():
+class RegfFile(object):
     def __init__(self):
         self.file = pyregf.file()
 
@@ -158,7 +158,7 @@ class RegfFile():
         return getattr(self.file, function)
 
 
-class RegfKey():
+class RegfKey(object):
     def __init__(self, key, path):
         self.key = key
         self.path = path
@@ -211,13 +211,30 @@ class RegfKey():
         return getattr(self.key, function)
 
 
-class RegfValue():
+class RegfValue(object):
     def __init__(self, value, path):
         self.value = value
         self.path = path
 
     def get_path(self):
         return self.path
+
+    def get_data(self):
+        reg_type = self.value.get_type()
+        if reg_type == _winreg.REG_DWORD:
+            return self.value.get_data_as_integer()
+        elif reg_type == _winreg.REG_DWORD_LITTLE_ENDIAN:
+            return self.value.get_data_as_integer()
+        elif reg_type == _winreg.REG_DWORD_BIG_ENDIAN:
+            return self.value.get_data_as_integer()
+        elif reg_type == _winreg.REG_SZ:
+            return self.value.get_data_as_string()
+        elif reg_type == _winreg.REG_EXPAND_SZ:
+            return self.value.get_data_as_string()
+        elif reg_type == _winreg.REG_LINK:
+            return self.value.get_data_as_string()
+
+        return self.value.get_data()
 
     def get_full_path(self):
         return self.path + "\\" + self.get_name()

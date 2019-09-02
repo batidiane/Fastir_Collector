@@ -14,12 +14,15 @@ import re
 import sys
 import traceback
 import yaml
-from utils.utils import mount_share, unmount_share,get_os_version,change_char_set_os_environ
+from utils.utils import mount_share, unmount_share, get_os_version, change_char_set_os_environ
 from utils.vss import _VSS
 import wmi
 import factory.factory as factory
 from settings import USERS_FOLDER, EXTRACT_DUMP
+import ctypes
 import settings
+import random
+import string
 
 
 def set_logger(param_options):
@@ -45,7 +48,7 @@ def set_logger(param_options):
     fh.setFormatter(log_format)
     logger.addHandler(fh)
 
-    # initiatinig the stream handler
+    # initiating the stream handler
     fs = InfoStreamHandler(sys.stdout)
     fs.setFormatter(log_format)
     logger.addHandler(fs)
@@ -57,12 +60,11 @@ def detect_os():
     version = []
     for c in c.Win32_OperatingSystem():
         version.append(c.Name)
-    name_version = version[0]
-
+    # name_version = version[0]
 
 
 def set_environment_options(param_options):
-    os.environ=change_char_set_os_environ(os.environ)
+    os.environ = change_char_set_os_environ(os.environ)
     operating_sys = platform.system()
 
     if operating_sys == settings.OS:
@@ -83,9 +85,12 @@ def set_environment_options(param_options):
     except KeyError:
         username = os.environ["USERPROFILE"].split("\\")[-1]
 
+    if "homedrive" in param_options:
+        param_options["USERPROFILE"] = param_options["homedrive"] + os.path.splitdrive(param_options["USERPROFILE"])[1]
+
     if "fs" in param_options:
         user_env_var = ["TEMP", "USERPROFILE", "APPDATA", "LOCALAPPDADATA", "TMP"]
-        fs = []
+        fs = set()
         for entry in param_options["fs"].split(","):
             d = entry.split('|')[0]
             depth = entry.split('|')[1]
@@ -99,19 +104,19 @@ def set_environment_options(param_options):
                         path = path.replace(username, "*")
 
                         for p in glob.glob(path):
-                            fs.append(p + '|'+depth)
+                            fs.add(p + '|' + depth)
                     else:
                         try:
-                            fs.append(d.replace("%" + d[1:len(d) - 1] + "%", os.environ[d[1:len(d) - 1]])+'|'+depth)
+                            fs.add(d.replace("%" + d[1:len(d) - 1] + "%", os.environ[d[1:len(d) - 1]]) + '|' + depth)
                         except KeyError:
                             sys.stderr.write("Environment variable '%s' doesn't exist\n" % d)
                 else:
                     try:
-                        fs.append(d.replace("%" + env_var + "%", os.environ[env_var]) + '|'+depth)
+                        fs.add(d.replace("%" + env_var + "%", os.environ[env_var]) + '|' + depth)
                     except KeyError:
                         sys.stderr.write("Environment variable '%s' doesn't exist\n" % d)
             elif os.path.isdir(d):
-                fs.append(d + '|' + depth)
+                fs.add(d + '|' + depth)
             else:
                 sys.stderr.write("Could not find directory '%s'\n" % d)
         param_options["fs"] = fs
@@ -119,7 +124,6 @@ def set_environment_options(param_options):
             param_options["zip"] = True
         else:
             param_options["zip"] = False
-
     return param_options
 
 
@@ -144,7 +148,10 @@ def profile_used(path, param_options):
         param_options["share_password"] = config.get("output", "share_password")
     else:
         param_options["share_password"] = None
-
+    if config.has_option('output', 'destination'):
+        param_options['destination'] = config.get('output', 'destination')
+    else:
+        param_options['destination'] = 'local'
     if config.has_section("filecatcher"):
         param_options["size_min"] = config.get("filecatcher", "size_min")
         param_options["size_max"] = config.get("filecatcher", "size_max")
@@ -155,17 +162,46 @@ def profile_used(path, param_options):
         param_options["ext_file"] = config.get("filecatcher", "ext_file")
         param_options["zip_ext_file"] = config.get("filecatcher", "zip_ext_file")
         param_options["all_users"] = yaml.load(config.get("filecatcher", "all_users"))
-        param_options['compare'] = config.get('filecatcher','compare')
+        param_options['compare'] = config.get('filecatcher', 'compare')
+        param_options['limit_days'] = config.get('filecatcher', 'limit_days')
 
     if config.has_section("dump"):
         param_options["dump"] = config.get("dump", "dump")
-        param_options["mft_export"] = config.get("dump", "mft_export")
+        if config.has_option('dump', 'mft_export'):
+            param_options["mft_export"] = config.get("dump", "mft_export")
+        else:
+            param_options["mft_export"] = True
+
+    if config.has_section("registry"):
+        if config.has_option("registry", "custom_registry_keys"):
+            param_options["custom_registry_keys"] = config.get("registry", "custom_registry_keys")
+            param_options["registry_recursive"] = yaml.load(config.get("registry", "registry_recursive"))
+        if config.has_option('registry', 'get_autoruns'):
+            param_options["get_autoruns"] = yaml.load(config.get('registry', "get_autoruns"))
+        else:
+            param_options["get_autoruns"] = False
+    else:
+        param_options['get_autoruns'] = False
 
     if config.has_section('modules'):
         for module in config.options('modules'):
             for module_option in config.options(module):
                 param_options[module_option] = config.get(module, module_option)
+    if config.has_section('extension'):
+        if config.has_option('extension', 'random'):
+            if yaml.load(config.get("extension", "random")):
+                param_options["rand_ext"] = "." + "".join(
+                    [random.SystemRandom().choice(string.ascii_lowercase) for _ in xrange(5)])
+            else:
+                param_options["rand_ext"] = "." + param_options["output_type"]
+        else:
+            param_options["rand_ext"] = "." + param_options["output_type"]
+    else:
+        param_options["rand_ext"] = "." + param_options["output_type"]
 
+    if config.has_section('env'):
+        for option in config.options('env'):
+            param_options[option] = config.get('env', option)
     return param_options
 
 
@@ -193,7 +229,7 @@ def create_output_dir(output_dir, letter=None):
 
     if letter:
         output_dir = letter + os.path.sep + output_dir + os.path.sep + datetime.now().strftime(
-            "%Y-%m-%d_%H%M%S") + os.path.sep
+                "%Y-%m-%d_%H%M%S") + os.path.sep
     else:
         output_dir = output_dir + os.path.sep + datetime.now().strftime("%Y-%m-%d_%H%M%S") + os.path.sep
     create_dir(output_dir)
@@ -209,12 +245,12 @@ def parse_command_line():
     parser.add_argument("--packages", dest="packages",
                         help=("List of packages all,memory,registry,evt,fs,health. And advanced packages: filecatcher,"
                               "dump \r\n use: --packages all or --packages fs,memory"))
-    parser.add_argument("--output_dir", dest="output_dir", help="Directory path for CSV outputs")
+    parser.add_argument("--output_dir", dest="output_dir", help="Output directory path")
+    parser.add_argument("--output_type", dest="output_type", help="Specify output format (json or csv)")
     parser.add_argument("--dump", dest="dump",
                         help="use: --dump ram if you want to dump ram. To list dump functionalities, --dump list")
-
-    parser.add_argument("--profile", dest="profile", help="--profile yourfile.conf. The filepath must be absolute")
-
+    parser.add_argument("--profile", dest="profile", help="--profile path\\to\\yourprofile.conf")
+    parser.add_argument("--homedrive", dest="homedrive", help="--homedrive drive: to manually set HOMEDRIVE for FastIR")
     args = parser.parse_args()
 
     if args.dump == "list":
@@ -253,6 +289,9 @@ def set_command_line_options(param_options, args):
             else:
                 param_options[option] = getattr(args, option)
 
+    if args.output_type is not None and param_options['rand_ext'] in ('.json', '.csv'):
+        param_options['rand_ext'] = '.' + args.output_type
+
     return param_options
 
 
@@ -276,6 +315,12 @@ def validate_options(param_options, parser):
             sys.stderr.write("\nMissing fs filters ('size' and/or 'mime_filter')")
             sys.exit(1)
 
+    if "homedrive" in param_options:
+        if not re.match('^[A-z]:$', param_options["homedrive"]):
+            parser.print_help()
+            sys.stderr.write("\nhomedrive expected to be in '[A-z]:' format.")
+            sys.exit(1)
+
 
 def set_options():
     """Define all options needed for execution, based on config, command line and environment"""
@@ -296,15 +341,19 @@ def set_options():
     param_options = set_environment_options(param_options)
 
     # if share and output are both specified, create output folder in share
-    if "output_share" in param_options:
-        mount_letter = mount_share(param_options["output_share"],
-                                   param_options["share_login"],
-                                   param_options["share_password"])
-        param_options["output_dir"] = create_output_dir(param_options["output_dir"], mount_letter)
-        param_options["mount_letter"] = mount_letter
-    else:
-        param_options["output_dir"] = create_output_dir(param_options["output_dir"])
-
+    try:
+        if "output_share" in param_options:
+            mount_letter = mount_share(param_options["output_share"],
+                                       param_options["share_login"],
+                                       param_options["share_password"])
+            param_options["output_dir"] = create_output_dir(param_options["output_dir"], mount_letter)
+            param_options["mount_letter"] = mount_letter
+        else:
+            param_options["output_dir"] = create_output_dir(os.path.join(os.path.dirname(__file__),
+                                                                         param_options["output_dir"]))
+    except Exception:
+            param_options["output_dir"] = create_output_dir(os.path.join(os.path.dirname(__file__),
+                                                                         param_options["output_dir"]))
     return param_options
 
 
@@ -321,6 +370,13 @@ def main(param_options):
     """
     import time
     time.sleep(2)
+
+    # check administrative rights
+    if ctypes.windll.shell32.IsUserAnAdmin() == 0:
+        print "ERROR: FastIR Collector must run with administrative privileges\nPress ENTER to finish..."
+        sys.stdin.readline()
+        return 0
+
     set_logger(param_options)
 
     modules = factory.load_modules(param_options["packages"], param_options["output_dir"])
@@ -332,8 +388,12 @@ def main(param_options):
             if "dump" in str(cl):
                 for opt in param_options["dump"].split(","):
                     try:
-                        if param_options["output_type"] in EXTRACT_DUMP[opt]:
-                            getattr(instance, EXTRACT_DUMP[opt])()
+                        if opt in EXTRACT_DUMP:
+                            list_method = EXTRACT_DUMP[opt]
+
+                            for method in list_method:
+                                if method.startswith(param_options["output_type"]):
+                                    getattr(instance, method)()
                     except Exception:
                         param_options["logger"].error(traceback.format_exc())
                 continue
@@ -350,8 +410,10 @@ def main(param_options):
     # Delete all shadow copies created during the acquisition process
     _VSS._close_instances()
 
-    if "output_share" in param_options:
+    if "mount_letter" in param_options:
         unmount_share(param_options["mount_letter"])
+
+    param_options['logger'].info('Check here %s for yours results' % os.path.abspath(param_options['output_dir']))
 
 
 if __name__ == "__main__":

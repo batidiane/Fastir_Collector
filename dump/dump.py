@@ -7,18 +7,18 @@ import struct
 import time
 import win32file
 import yaml
-
+import glob
 from _analyzemft.mftsession import _MftSession
 from disk_analysis import DiskAnalysis
-from environment_settings import Partitions, Disks, OperatingSystem, \
-    EnvironmentVariable
+from environment_settings import Partitions, Disks, OperatingSystem  # , EnvironmentVariable
 from mbr import Mbr
 from vbr import Vbr
 from settings import LONGLONGSIZE, BYTESIZE, WORDSIZE
 from utils.utils import get_local_drives, create_driver_service, start_service, stop_and_delete_driver_service
 from utils.utils_rawstring import decodeATRHeader, decode_data_runs, get_physical_drives
 from winpmem import _Image
-
+from filecatcher.archives import _Archives
+from utils.vss import _VSS
 
 class _Dump(object):
     def __init__(self, params):
@@ -26,15 +26,16 @@ class _Dump(object):
         self.output_dir = params['output_dir']
         self.logger = params['logger']
         self.mft_export = yaml.load(params['mft_export'])
-        if 'rekall' in params:
-            self.plugins = params['rekall']
+        self.rand_ext = params['rand_ext']
+        self.userprofile = params['USERPROFILE']
+        self.params = params
 
-    def csv_mft(self):
-        """Exports the MFT from each local drives and creates a csv from it."""
+    def __extract_mft(self):
         local_drives = get_local_drives()
         for local_drive in local_drives:
             self.logger.info('Exporting MFT for drive : ' + local_drive)
             ntfsdrive = file('\\\\.\\' + local_drive.replace('\\', ''), 'rb')
+            path_current_mft = self.output_dir + '\\' + self.computer_name + '_mft_' + local_drive[0] + '.mft'
             if os.name == 'nt':
                 # poor win can't seek a drive to individual bytes..only 1 sector at a time..
                 # convert MBR to stringio to make it seekable
@@ -71,7 +72,7 @@ class _Dump(object):
             mftDict = {}
             mftDict['attr_off'] = struct.unpack(b"<H", mftraw[20:22])[0]
             ReadPtr = mftDict['attr_off']
-            with open(self.output_dir + '\\' + self.computer_name + '_mft_' + local_drive[0] + '.mft', 'wb') as output:
+            with open(path_current_mft, 'wb') as output:
                 while ReadPtr < len(mftraw):
                     ATRrecord = decodeATRHeader(mftraw[ReadPtr:])
                     if ATRrecord['type'] == 0x80:
@@ -79,7 +80,7 @@ class _Dump(object):
                         prevCluster = None
                         prevSeek = 0
                         for length, cluster in decode_data_runs(dataruns):
-                            if prevCluster == None:
+                            if prevCluster is None:
                                 ntfsdrive.seek(cluster * bytesPerSector * sectorsPerCluster)
                                 prevSeek = ntfsdrive.tell()
                                 r_data = ntfsdrive.read(length * bytesPerSector * sectorsPerCluster)
@@ -96,11 +97,22 @@ class _Dump(object):
                         break
                     if ATRrecord['len'] > 0:
                         ReadPtr = ReadPtr + ATRrecord['len']
-            # export on csv
+            yield path_current_mft
+
+    def csv_mft(self):
+        """Exports the MFT from each local drives and creates a csv from it."""
+        # export on csv
+        for path_current_mft in self.__extract_mft():
             if self.mft_export:
-                session = _MftSession(self.logger,
-                                      self.output_dir + '\\' + self.computer_name + '_mft_' + local_drive[0] + '.mft',
-                                      self.output_dir + '\\' + self.computer_name + '_mft_' + local_drive[0] + '.csv')
+                session = _MftSession(self.logger, path_current_mft, path_current_mft.replace('.mft', self.rand_ext))
+                session.open_files()
+                session.process_mft_file()
+
+    def json_mft(self):
+        for path_current_mft in self.__extract_mft():
+            if self.mft_export:
+                session = _MftSession(self.logger, path_current_mft, path_current_mft.replace('.mft', self.rand_ext),
+                                      True)
                 session.open_files()
                 session.process_mft_file()
 
@@ -112,9 +124,12 @@ class _Dump(object):
             with open(self.output_dir + '\\' + self.computer_name + '.dd', 'wb') as fw:
                 with open(d, 'rb') as fr:
                     while already < int(size):
-                        already = already + buff
+                        already += buff
                         r = fr.read(buff)
                         fw.write(r)
+
+    def json_export_dd(self):
+        self.csv_export_dd()
 
     def csv_export_ram(self):
         """Dump ram using winpmem"""
@@ -140,13 +155,16 @@ class _Dump(object):
         finally:
             stop_and_delete_driver_service(hSvc)
 
+    def json_mbr(self):
+        self.csv_mbr()
+
     def csv_mbr(self):
         """Extract MBR and BootLoader"""
         informations = DiskAnalysis(self.output_dir)
         partition = Partitions(self.output_dir, self.logger)
         disk = Disks()
         operatingSystem = OperatingSystem()
-        envVar = EnvironmentVariable()
+        # env_var = EnvironmentVariable()
         mbr = Mbr(self.output_dir)
         informations.os = operatingSystem.os_information(informations.currentMachine)
         informations.listDisks = disk.get_disk_information(informations.currentMachine)
@@ -154,8 +172,8 @@ class _Dump(object):
         for d in informations.listDisks:
             informations.mbrDisk = mbr.mbr_parsing(d.deviceID)
             mbr.boot_loader_disassembly()
-            for p in informations.mbrDisk.partitions :
-                if p.state == "ACTIVE" :
+            for p in informations.mbrDisk.partitions:
+                if p.state == "ACTIVE":
                     vbr = Vbr(d.deviceID, p.sector_offset, self.output_dir)
                     self.logger.info('VBR Extracting')
                     vbr.extract_vbr()
@@ -164,3 +182,21 @@ class _Dump(object):
         informations.envVarList = os.environ
         informations.listPartitions = partition.partition_information(informations.currentMachine)
         informations.save_informations()
+
+    def __get_registry(self):
+        arch = _Archives(os.path.join(self.output_dir, 'dump_registry.zip'), self.logger)
+        if hasattr(self, 'root_reg'):
+            files_to_zip = [os.path.join(self.root_reg, f) for f in os.listdir(self.root_reg) if
+                            os.path.isfile(os.path.join(self.root_reg, f))]
+            path_ntuserdat = os.path.join(self.userprofile, '*', 'NTUSER.DAT')
+            files_to_zip.extend([os.path.join(_VSS._get_instance(self.params, os.path.splitdrive(f)[0])._return_root(),
+                                              os.path.splitdrive(f)[1].lstrip('\\')) for f in glob.glob(path_ntuserdat) if
+                                 os.path.isfile(f)])
+            for f in files_to_zip:
+                arch.record(f)
+
+    def csv_registry(self):
+        self.__get_registry()
+
+    def json_registry(self):
+        self.csv_registry()

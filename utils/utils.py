@@ -22,6 +22,54 @@ import cStringIO
 import codecs
 import locale
 import ctypes
+import json
+import binascii
+
+regex_patern_path = '^(.*/)?(?:$|(.+?)(?:(\.[^.]*$)|$))'
+
+
+class UnicodeJsonDumper:
+    """
+    This class always write JSON as an array of object.
+    A close() call at the end of the function is mandatory, otherwise generated
+    JSON is note valid.
+    """
+    def __init__(self, output):
+        self.output = output
+        self.first = True
+
+    def list_to_json(self, list_json):
+        """
+        Alternative method which bypasses inner state to directly write a collection in file.
+        Should only be used for small datasets, as it is fully stored in memory.
+        :param list_json: An array of elements where the first one is the name of the fields.
+        """
+        headers = list_json[0]
+        to_write = []
+        for entry in list_json[1:]:
+            json_dict = {h:  entry[index] for index, h in enumerate(headers)}
+            to_write.append(encode_json_dict(json_dict))
+        json.dump(to_write, self.output)
+
+    def dump_json(self, entry):
+        # encodings = encodings = ["ascii", "utf-8", "latin1", "utf-16le", sys.stdin.encoding]
+        to_write = encode_json_dict(entry)
+        if self.first:
+            self.output.write('[')
+        else:
+            self.output.write(',')
+        json.dump(to_write, self.output)
+        self.first = False
+
+    def close_current(self):
+        """
+        Close the array of JSON objects.
+        As the file stream is managed outside of this object, don't close the
+        output and reinitialise the inner state.
+        """
+        if not self.first:
+            self.output.write(']')
+            self.first = True
 
 
 class UnicodeWriter:
@@ -38,26 +86,17 @@ class UnicodeWriter:
         self.encoder = codecs.getincrementalencoder(encoding)()
 
     def writerow(self, row):
-        encodings = ["ascii", "utf-8", "latin1", "utf-16le", sys.stdin.encoding]
         columns = []
         for s in row:
             if s:
-                found = False
-                for encoding in encodings:
+                encoding, value = find_encoding(s)
+                if encoding:
                     try:
-                        if type(s) != "str" and type(s) != "unicode":
-                            s = str(s).decode(encoding)
-                        elif type(s) == "str":
-                            s = s.decode(encoding)
-
-                        columns.append(s.decode(encoding).encode("utf-8", "ignore"))
-                        found = True
-                        break
+                        columns.append(value.decode(encoding).encode("utf-8", "ignore"))
                     except UnicodeEncodeError:
-                        pass
-                    except UnicodeDecodeError:
-                        pass
-                if not found:
+                        columns.append('0x' + binascii.b2a_hex(s).encode("utf-8", "ignore"))
+                        # columns.append("".join([a for a in s]).encode("utf-8", "ignore"))
+                else:
                     # last hope
                     columns.append("".join([a for a in s]).encode("utf-8", "ignore"))
             else:
@@ -77,6 +116,39 @@ class UnicodeWriter:
     def writerows(self, rows):
         for row in rows:
             self.writerow(row)
+
+
+def find_encoding(value):
+    encodings = ["ascii", "utf-8", "latin1", "utf-16le", sys.stdin.encoding]
+    for encoding in encodings:
+        try:
+            if type(value) != "str" and type(value) != "unicode":
+                value = str(value).decode(encoding)
+            elif type(value) == "str":
+                value = value.decode(encoding)
+            return encoding, value
+
+        except UnicodeEncodeError:
+            pass
+        except UnicodeDecodeError:
+            pass
+    return None, None
+
+
+def encode_json_dict(jdict):
+    """Encode all values in a dict to allow json serialization"""
+    to_write = {}
+    for k, v in jdict.items():
+        if v:
+            encoding, value = find_encoding(v)
+            if encoding:
+                try:
+                    to_write[k] = value.decode(encoding).encode('utf-8', 'ignore')
+                except UnicodeEncodeError:
+                    to_write[k] = '0x' + binascii.b2a_hex(v).encode('UTF-8', 'ignore')
+            else:
+                to_write[k] = ''.join([a for a in v]).encode('utf-8', 'ignore')
+    return to_write
 
 
 def decode_output_cmd(output):
@@ -341,6 +413,10 @@ def get_terminal_decoded_string(string):
     return string.decode(sys.stdout.encoding, "ignore")
 
 
+def get_json_writer(json_file):
+    return UnicodeJsonDumper(json_file)
+
+
 def get_csv_writer(csvfile):
     return UnicodeWriter(csvfile, quoting=csv.QUOTE_ALL)
 
@@ -353,6 +429,32 @@ def write_to_csv(arr_data, csv_writer):
 def write_list_to_csv(arr_data, csv_writer):
     """Writes a list"s contents to a CSV file using UTF-8"""
     csv_writer.writerows(arr_data)
+
+
+def write_list_to_json(arr_data, json_writer):
+    """Write list data in json files using UTF-8"""
+    json_writer.list_to_json(arr_data)
+
+
+def write_to_json(header, arr_data, json_writer):
+    """Write data in json files using UTF-8"""
+    try:
+        json_writer.dump_json({
+            h: arr_data[index] for index, h in enumerate(header)
+        })
+    except IndexError:
+        json_writer.dump_json({
+            header[index]: d for index, d in enumerate(arr_data)
+        })
+
+
+def write_dict_json(arr_data, json_writer):
+    json_writer.dump_json(arr_data)
+    json_writer.close_current()
+
+
+def close_json_writer(json_writer):
+    json_writer.close_current()
 
 
 def get_architecture():
@@ -429,6 +531,11 @@ def record_sha256_logs(fr, fw):
         m = process_sha256(fr)
         hash_file.write(fr + "," + m + "\n")
         hash_file.close()
+
+
+def process_hashes(path):
+    content = open(path, "rb").read()
+    return hashlib.md5(content).hexdigest(), hashlib.sha1(content).hexdigest(), hashlib.sha256(content).hexdigest()
 
 
 def process_md5(path):

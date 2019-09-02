@@ -7,11 +7,11 @@ OS = "Windows"
 FASTIR_ROOT = os.path.normpath(os.path.join(os.path.abspath(os.path.dirname(__file__)), "."))
 
 EXTRACT_DUMP = {
-    "mft": "csv_mft",
-    "dd": "csv_export_dd",
-    "ram": "csv_export_ram",
-    "rekall": "csv_rekall_cmd",
-    "mbr": "csv_mbr"
+    "mft": ["csv_mft", "json_mft"],
+    "dd": ["csv_export_dd", "json_export_dd"],
+    "ram": ["csv_export_ram", "json_export_ram"],
+    "mbr": ["csv_mbr", "json_mbr"],
+    "registry": ["csv_registry", "json_registry"]
 }
 
 FILTERS_MAGIC = {"application/msword",
@@ -57,17 +57,16 @@ WORDSIZE = 2
 DWORDSIZE = 4
 
 USERS_FOLDER = {
-    "Windows10": "C:\\Users",
-    "Windows8": "C:\\Users",
-    "Windows8_1": "C:\\Users",
-    "Windows7": "C:\\Users",
-    "Windows2012Server":"C:\\User",
-    "Windows2012ServerR2":"C:\\User",
-    "WindowsXP": "C:\\Users",
-    "WindowsVista": "C:\\Users",
-    "Windows2008ServerR2": "C:\\Users",
-    "Windows2008Server": "C:\\Users",
-    "WindowsXP": "C\Documents and Settings",
-    "Windows2003Server": "C\Documents and Settings",
-    "Windows2003ServerR2": "C\Documents and Settings"
+    "Windows10": os.path.join(os.getenv('HOMEDRIVE', 'C:'), '\\Users'),
+    "Windows8": os.path.join(os.getenv('HOMEDRIVE', 'C:'), '\\Users'),
+    "Windows8_1": os.path.join(os.getenv('HOMEDRIVE', 'C:'), '\\Users'),
+    "Windows7": os.path.join(os.getenv('HOMEDRIVE', 'C:'), '\\Users'),
+    "Windows2012Server": os.path.join(os.getenv('HOMEDRIVE', 'C:'), '\\Users'),
+    "Windows2012ServerR2": os.path.join(os.getenv('HOMEDRIVE', 'C:'), '\\Users'),
+    "WindowsXP": os.path.join(os.getenv('HOMEDRIVE', 'C:'), '\\Documents and Settings'),
+    "WindowsVista": os.path.join(os.getenv('HOMEDRIVE', 'C:'), '\\Users'),
+    "Windows2008ServerR2": os.path.join(os.getenv('HOMEDRIVE', 'C:'), '\\Users'),
+    "Windows2008Server": os.path.join(os.getenv('HOMEDRIVE', 'C:'), '\\Users'),
+    "Windows2003Server": os.path.join(os.getenv('HOMEDRIVE', 'C:'), '\\Documents and Settings'),
+    "Windows2003ServerR2": os.path.join(os.getenv('HOMEDRIVE', 'C:'), '\\Documents and Settings')
 }
